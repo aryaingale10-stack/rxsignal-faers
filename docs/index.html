@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RxSignal Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+<style>
+:root{--bg:#f6f7f9;--card:#ffffff;--ink:#1d2433;--muted:#5f6b7d;--line:#e3e7ee;
+--accent:#2563eb;--accent2:#0f9d8a;--warn:#d9480f;--bad:#c92a2a;--good:#2b8a3e;--soft:#eef3ff}
+@media (prefers-color-scheme:dark){:root{--bg:#0f141c;--card:#171e29;--ink:#e6ebf2;--muted:#9aa6b8;
+--line:#283244;--accent:#6ea0ff;--accent2:#3fc7b1;--warn:#ff8a4c;--bad:#ff6b6b;--good:#69db7c;--soft:#1d2a40}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:1180px;margin:0 auto;padding:28px 16px 60px}
+h1{font-size:26px;margin:0 0 4px;letter-spacing:-.01em}
+.sub{color:var(--muted);margin:0 0 22px}
+h2{font-size:17px;margin:0 0 4px}
+.note{color:var(--muted);font-size:13px;margin:0 0 14px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:18px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.kpi .v{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums}
+.kpi .l{color:var(--muted);font-size:13px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,520px),1fr));gap:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;min-width:0}
+.card.full{grid-column:1/-1}
+.chart{position:relative;height:340px}
+table{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line)}
+th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.03em}
+td.num,th.num{text-align:right}
+.better{color:var(--good);font-weight:600}.worse{color:var(--warn);font-weight:600}
+select{font:inherit;padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink)}
+.tablewrap{overflow-x:auto}
+footer{color:var(--muted);font-size:12px;margin-top:22px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>RxSignal: FDA Adverse Event Drug Data, Cleaned &amp; Standardized</h1>
+  <p class="sub" id="sub"></p>
+  <div class="kpis" id="kpis"></div>
+  <div class="grid">
+    <div class="card full">
+      <h2>Data quality scorecard: before vs. after cleaning</h2>
+      <p class="note">Same SQL checks run on the raw FDA tables and on the cleaned tables.</p>
+      <div class="tablewrap"><table id="scorecard"></table></div>
+    </div>
+    <div class="card">
+      <h2>How each drug row was normalized</h2>
+      <p class="note">Share of drug rows resolved by each layer of the pipeline.</p>
+      <div class="chart"><canvas id="methods"></canvas></div>
+    </div>
+    <div class="card">
+      <h2>Top primary-suspect drugs</h2>
+      <p class="note">Distinct reports per active ingredient (after normalization).</p>
+      <div class="chart"><canvas id="topdrugs"></canvas></div>
+    </div>
+    <div class="card full">
+      <h2>Reports missed without normalization</h2>
+      <p class="note">If you counted only the most common spelling of each drug, this share of its reports would be lost.</p>
+      <div class="chart"><canvas id="undercount"></canvas></div>
+      <div class="tablewrap"><table id="undertable"></table></div>
+    </div>
+    <div class="card">
+      <h2>Serious outcomes by drug</h2>
+      <p class="note">% of each drug's reports with hospitalization or death recorded.</p>
+      <div class="chart"><canvas id="outcomes"></canvas></div>
+    </div>
+    <div class="card">
+      <h2>Most reported reactions</h2>
+      <p class="note">Top 10 reactions for <select id="drugpick"></select></p>
+      <div class="chart"><canvas id="reactions"></canvas></div>
+    </div>
+    <div class="card">
+      <h2>Reports by age group and sex</h2>
+      <p class="note">After invalid ages were set to Unknown.</p>
+      <div class="chart"><canvas id="demo"></canvas></div>
+    </div>
+    <div class="card">
+      <h2>Who submitted the reports</h2>
+      <p class="note">Reporter occupation.</p>
+      <div class="chart"><canvas id="reporters"></canvas></div>
+    </div>
+  </div>
+  <footer id="foot"></footer>
+</div>
+<script>
+const D = {"quarter": "2026q3", "generated": "2026-11-08", "load": null, "quality_before": {"duplication": {"report_rows": 421404, "unique_cases": 421403, "superseded_versions": 1, "pct_duplicate_rows": 0.0}, "completeness_demo": {"reports": 421404, "pct_age": 63.98, "pct_sex": 81.94, "pct_weight": 17.86, "pct_event_date": 44.01, "pct_reporter_country": 100.0, "pct_reporter_type": 98.82}, "completeness_drug": {"drug_rows": 1582986, "pct_drugname": 100.0, "pct_active_ingredient": 97.54, "pct_route": 24.5, "pct_dose_amount": 39.23}, "validity": {"ages_reported": 269604, "invalid_ages": 5, "weights_reported": 75265, "invalid_weights": 23, "event_dates_reported": 185467, "invalid_event_dates": 3, "pct_invalid_ages": 0.0, "pct_invalid_weights": 0.03, "pct_invalid_event_dates": 0.0}, "uninformative_names": {"drug_rows": 1582986, "uninformative_rows": 3, "pct_uninformative": 0.0}, "unique_raw_drug_names": 34478}, "quality_after": {"duplication": {"report_rows": 421403, "unique_cases": 421403, "superseded_versions": 0, "pct_duplicate_rows": 0.0}, "completeness_demo": {"reports": 421403, "pct_age": 63.98, "pct_sex": 81.94, "pct_weight": 17.86, "pct_event_date": 44.01, "pct_reporter_country": 100.0, "pct_reporter_type": 98.82}, "completeness_drug": {"drug_rows": 1582976, "pct_drugname": 100.0, "pct_active_ingredient": 97.54, "pct_route": 24.5, "pct_dose_amount": 39.23}, "validity": {"ages_reported": 269599, "invalid_ages": 0, "weights_reported": 75242, "invalid_weights": 0, "event_dates_reported": 185464, "invalid_event_dates": 0, "pct_invalid_ages": 0.0, "pct_invalid_weights": 0.0, "pct_invalid_event_dates": 0.0}, "uninformative_names": {"drug_rows": 1582976, "uninformative_rows": 3, "pct_uninformative": 0.0}, "unique_raw_drug_names": 34478}, "normalization": {"drug_rows": 1582976, "unique_raw_names": 36003, "unique_cleaned_names": 27971, "names_looked_up": 3000, "rows_by_method": {"rxnorm_exact": 1415729, "not_looked_up": 85005, "rxnorm_approx": 46108, "unresolved": 36116, "uninformative": 18}, "names_by_method": {"rxnorm_exact": 2598, "unresolved": 223, "rxnorm_approx": 179}, "pct_rows_normalized": 92.35, "llm_used": false, "rxnav_api_calls": 0, "seconds": 20.9}, "unique_ingredients": 1536, "name_variants": [{"ingredient": "dupilumab", "raw_spellings": 7, "drug_rows": 53214}, {"ingredient": "tirzepatide", "raw_spellings": 20, "drug_rows": 31399}, {"ingredient": "prednisone", "raw_spellings": 24, "drug_rows": 16868}, {"ingredient": "semaglutide", "raw_spellings": 16, "drug_rows": 16520}, {"ingredient": "acetaminophen", "raw_spellings": 57, "drug_rows": 16302}, {"ingredient": "infliximab", "raw_spellings": 8, "drug_rows": 15607}, {"ingredient": "methotrexate", "raw_spellings": 14, "drug_rows": 15505}, {"ingredient": "adalimumab", "raw_spellings": 19, "drug_rows": 13209}, {"ingredient": "albuterol", "raw_spellings": 21, "drug_rows": 12772}, {"ingredient": "rituximab", "raw_spellings": 8, "drug_rows": 12265}, {"ingredient": "atorvastatin", "raw_spellings": 51, "drug_rows": 12078}, {"ingredient": "etonogestrel", "raw_spellings": 2, "drug_rows": 11412}, {"ingredient": "treprostinil", "raw_spellings": 18, "drug_rows": 11299}, {"ingredient": "levothyroxine", "raw_spellings": 88, "drug_rows": 10976}, {"ingredient": "aspirin", "raw_spellings": 44, "drug_rows": 10598}, {"ingredient": "pantoprazole", "raw_spellings": 37, "drug_rows": 10544}, {"ingredient": "tocilizumab", "raw_spellings": 7, "drug_rows": 9766}, {"ingredient": "risankizumab", "raw_spellings": 5, "drug_rows": 9506}, {"ingredient": "amlodipine", "raw_spellings": 33, "drug_rows": 9305}, {"ingredient": "lenalidomide", "raw_spellings": 2, "drug_rows": 8982}, {"ingredient": "metformin", "raw_spellings": 25, "drug_rows": 8847}, {"ingredient": "folic acid", "raw_spellings": 25, "drug_rows": 8798}, {"ingredient": "cetirizine", "raw_spellings": 26, "drug_rows": 8755}, {"ingredient": "prednisolone", "raw_spellings": 19, "drug_rows": 8261}, {"ingredient": "diclofenac", "raw_spellings": 24, "drug_rows": 8209}, {"ingredient": "furosemide", "raw_spellings": 24, "drug_rows": 8046}, {"ingredient": "carbidopa / levodopa", "raw_spellings": 15, "drug_rows": 7957}, {"ingredient": "omeprazole", "raw_spellings": 34, "drug_rows": 7911}, {"ingredient": "rosuvastatin", "raw_spellings": 37, "drug_rows": 7777}, {"ingredient": "apixaban", "raw_spellings": 13, "drug_rows": 7574}, {"ingredient": "bimekizumab", "raw_spellings": 3, "drug_rows": 7439}, {"ingredient": "dexamethasone", "raw_spellings": 32, "drug_rows": 7331}, {"ingredient": "gabapentin", "raw_spellings": 37, "drug_rows": 7217}, {"ingredient": "metoprolol", "raw_spellings": 46, "drug_rows": 6979}, {"ingredient": "hydroxychloroquine", "raw_spellings": 10, "drug_rows": 6784}, {"ingredient": "upadacitinib", "raw_spellings": 3, "drug_rows": 6761}, {"ingredient": "methylprednisolone", "raw_spellings": 18, "drug_rows": 6577}, {"ingredient": "vitamin d3", "raw_spellings": 78, "drug_rows": 6449}, {"ingredient": "insulin glargine", "raw_spellings": 15, "drug_rows": 6183}, {"ingredient": "abatacept", "raw_spellings": 2, "drug_rows": 6032}, {"ingredient": "omalizumab", "raw_spellings": 4, "drug_rows": 6005}, {"ingredient": "tacrolimus", "raw_spellings": 7, "drug_rows": 5859}, {"ingredient": "sulfasalazine", "raw_spellings": 5, "drug_rows": 5857}, {"ingredient": "pregabalin", "raw_spellings": 21, "drug_rows": 5775}, {"ingredient": "certolizumab pegol", "raw_spellings": 2, "drug_rows": 5682}, {"ingredient": "leflunomide", "raw_spellings": 5, "drug_rows": 5593}, {"ingredient": "ondansetron", "raw_spellings": 32, "drug_rows": 5531}, {"ingredient": "pembrolizumab", "raw_spellings": 2, "drug_rows": 5485}, {"ingredient": "carboplatin", "raw_spellings": 3, "drug_rows": 5417}, {"ingredient": "alendronate", "raw_spellings": 7, "drug_rows": 5329}], "agreement": {"rows_compared": 1454169, "pct_agree": 95.08, "by_method": {"rxnorm_approx": {"pct_agree": 61.52, "rows": 45032}, "rxnorm_exact": {"pct_agree": 96.15, "rows": 1409137}}}, "analysis": {"top_drugs": [{"ingredient": "dupilumab", "reports": 45033}, {"ingredient": "tirzepatide", "reports": 19276}, {"ingredient": "semaglutide", "reports": 10206}, {"ingredient": "etonogestrel", "reports": 10114}, {"ingredient": "risankizumab", "reports": 6241}, {"ingredient": "bimekizumab", "reports": 6157}, {"ingredient": "lenalidomide", "reports": 5956}, {"ingredient": "adalimumab", "reports": 4961}, {"ingredient": "upadacitinib", "reports": 4368}, {"ingredient": "infliximab", "reports": 3912}, {"ingredient": "evolocumab", "reports": 3462}, {"ingredient": "insulin glargine", "reports": 3403}, {"ingredient": "nemolizumab", "reports": 3397}, {"ingredient": "somatropin", "reports": 3358}, {"ingredient": "guselkumab", "reports": 2979}, {"ingredient": "corticotropin", "reports": 2966}, {"ingredient": "carbidopa / levodopa", "reports": 2947}, {"ingredient": "pimavanserin", "reports": 2799}, {"ingredient": "certolizumab pegol", "reports": 2686}, {"ingredient": "pembrolizumab", "reports": 2680}], "undercount": [{"ingredient": "dupilumab", "reports": 45033, "top_spelling": "DUPIXENT", "reports_top_spelling": 44455, "spellings": 2, "reports_missed": 578, "pct_missed": 1.3}, {"ingredient": "tirzepatide", "reports": 19276, "top_spelling": "ZEPBOUND", "reports_top_spelling": 8602, "spellings": 4, "reports_missed": 10674, "pct_missed": 55.4}, {"ingredient": "semaglutide", "reports": 10206, "top_spelling": "WEGOVY", "reports_top_spelling": 5083, "spellings": 4, "reports_missed": 5123, "pct_missed": 50.2}, {"ingredient": "etonogestrel", "reports": 10114, "top_spelling": "NEXPLANON", "reports_top_spelling": 10027, "spellings": 2, "reports_missed": 87, "pct_missed": 0.9}, {"ingredient": "risankizumab", "reports": 6241, "top_spelling": "SKYRIZI", "reports_top_spelling": 5674, "spellings": 2, "reports_missed": 567, "pct_missed": 9.1}, {"ingredient": "bimekizumab", "reports": 6157, "top_spelling": "BIMZELX", "reports_top_spelling": 5851, "spellings": 2, "reports_missed": 306, "pct_missed": 5.0}, {"ingredient": "lenalidomide", "reports": 5956, "top_spelling": "LENALIDOMIDE", "reports_top_spelling": 4595, "spellings": 2, "reports_missed": 1361, "pct_missed": 22.9}, {"ingredient": "adalimumab", "reports": 4961, "top_spelling": "HUMIRA", "reports_top_spelling": 1646, "spellings": 13, "reports_missed": 3315, "pct_missed": 66.8}, {"ingredient": "upadacitinib", "reports": 4368, "top_spelling": "RINVOQ", "reports_top_spelling": 4010, "spellings": 2, "reports_missed": 358, "pct_missed": 8.2}, {"ingredient": "infliximab", "reports": 3912, "top_spelling": "INFLIXIMAB-DYYB", "reports_top_spelling": 1364, "spellings": 7, "reports_missed": 2548, "pct_missed": 65.1}, {"ingredient": "evolocumab", "reports": 3462, "top_spelling": "REPATHA", "reports_top_spelling": 3445, "spellings": 2, "reports_missed": 17, "pct_missed": 0.5}, {"ingredient": "insulin glargine", "reports": 3403, "top_spelling": "LANTUS", "reports_top_spelling": 2431, "spellings": 5, "reports_missed": 972, "pct_missed": 28.6}, {"ingredient": "nemolizumab", "reports": 3397, "top_spelling": "NEMLUVIO", "reports_top_spelling": 3118, "spellings": 2, "reports_missed": 279, "pct_missed": 8.2}, {"ingredient": "somatropin", "reports": 3358, "top_spelling": "GENOTROPIN", "reports_top_spelling": 2637, "spellings": 5, "reports_missed": 721, "pct_missed": 21.5}, {"ingredient": "guselkumab", "reports": 2979, "top_spelling": "TREMFYA", "reports_top_spelling": 2473, "spellings": 2, "reports_missed": 506, "pct_missed": 17.0}, {"ingredient": "corticotropin", "reports": 2966, "top_spelling": "ACTHAR", "reports_top_spelling": 1923, "spellings": 2, "reports_missed": 1043, "pct_missed": 35.2}, {"ingredient": "carbidopa / levodopa", "reports": 2947, "top_spelling": "CARBIDOPA\\LEVODOPA", "reports_top_spelling": 1001, "spellings": 9, "reports_missed": 1946, "pct_missed": 66.0}, {"ingredient": "pimavanserin", "reports": 2799, "top_spelling": "NUPLAZID", "reports_top_spelling": 2799, "spellings": 1, "reports_missed": 0, "pct_missed": 0.0}, {"ingredient": "certolizumab pegol", "reports": 2686, "top_spelling": "CIMZIA", "reports_top_spelling": 2521, "spellings": 2, "reports_missed": 165, "pct_missed": 6.1}, {"ingredient": "pembrolizumab", "reports": 2680, "top_spelling": "KEYTRUDA", "reports_top_spelling": 1770, "spellings": 2, "reports_missed": 910, "pct_missed": 34.0}], "reactions": [{"ingredient": "dupilumab", "reaction": "Pruritus", "reports": 7613, "pct_of_drug_reports": 16.9}, {"ingredient": "dupilumab", "reaction": "Injection site pain", "reports": 4321, "pct_of_drug_reports": 9.6}, {"ingredient": "dupilumab", "reaction": "Dermatitis atopic", "reports": 3901, "pct_of_drug_reports": 8.7}, {"ingredient": "dupilumab", "reaction": "Product use in unapproved indication", "reports": 3891, "pct_of_drug_reports": 8.6}, {"ingredient": "dupilumab", "reaction": "Dry skin", "reports": 3335, "pct_of_drug_reports": 7.4}, {"ingredient": "dupilumab", "reaction": "Rash", "reports": 3133, "pct_of_drug_reports": 7.0}, {"ingredient": "dupilumab", "reaction": "Accidental exposure to product", "reports": 2872, "pct_of_drug_reports": 6.4}, {"ingredient": "dupilumab", "reaction": "Exposure via skin contact", "reports": 2857, "pct_of_drug_reports": 6.3}, {"ingredient": "dupilumab", "reaction": "Drug ineffective", "reports": 2754, "pct_of_drug_reports": 6.1}, {"ingredient": "dupilumab", "reaction": "Eczema", "reports": 2690, "pct_of_drug_reports": 6.0}, {"ingredient": "tirzepatide", "reaction": "Nausea", "reports": 2632, "pct_of_drug_reports": 13.7}, {"ingredient": "tirzepatide", "reaction": "Incorrect dose administered", "reports": 2496, "pct_of_drug_reports": 12.9}, {"ingredient": "tirzepatide", "reaction": "Diarrhoea", "reports": 1288, "pct_of_drug_reports": 6.7}, {"ingredient": "tirzepatide", "reaction": "Drug ineffective", "reports": 1243, "pct_of_drug_reports": 6.4}, {"ingredient": "tirzepatide", "reaction": "Constipation", "reports": 1161, "pct_of_drug_reports": 6.0}, {"ingredient": "tirzepatide", "reaction": "Vomiting", "reports": 1142, "pct_of_drug_reports": 5.9}, {"ingredient": "tirzepatide", "reaction": "Off label use", "reports": 1028, "pct_of_drug_reports": 5.3}, {"ingredient": "tirzepatide", "reaction": "Product dose omission issue", "reports": 885, "pct_of_drug_reports": 4.6}, {"ingredient": "tirzepatide", "reaction": "Fatigue", "reports": 821, "pct_of_drug_reports": 4.3}, {"ingredient": "tirzepatide", "reaction": "Illness", "reports": 692, "pct_of_drug_reports": 3.6}, {"ingredient": "semaglutide", "reaction": "Nausea", "reports": 1256, "pct_of_drug_reports": 12.3}, {"ingredient": "semaglutide", "reaction": "Off label use", "reports": 1012, "pct_of_drug_reports": 9.9}, {"ingredient": "semaglutide", "reaction": "Impaired gastric emptying", "reports": 981, "pct_of_drug_reports": 9.6}, {"ingredient": "semaglutide", "reaction": "Vomiting", "reports": 834, "pct_of_drug_reports": 8.2}, {"ingredient": "semaglutide", "reaction": "Emotional distress", "reports": 670, "pct_of_drug_reports": 6.6}, {"ingredient": "semaglutide", "reaction": "Diarrhoea", "reports": 652, "pct_of_drug_reports": 6.4}, {"ingredient": "semaglutide", "reaction": "Weight increased", "reports": 608, "pct_of_drug_reports": 6.0}, {"ingredient": "semaglutide", "reaction": "Constipation", "reports": 589, "pct_of_drug_reports": 5.8}, {"ingredient": "semaglutide", "reaction": "Drug ineffective", "reports": 509, "pct_of_drug_reports": 5.0}, {"ingredient": "semaglutide", "reaction": "Weight loss poor", "reports": 473, "pct_of_drug_reports": 4.6}, {"ingredient": "etonogestrel", "reaction": "No adverse event", "reports": 2229, "pct_of_drug_reports": 22.0}, {"ingredient": "etonogestrel", "reaction": "Complication of device insertion", "reports": 1506, "pct_of_drug_reports": 14.9}, {"ingredient": "etonogestrel", "reaction": "Product quality issue", "reports": 1360, "pct_of_drug_reports": 13.4}, {"ingredient": "etonogestrel", "reaction": "Incorrect product administration duration", "reports": 1360, "pct_of_drug_reports": 13.4}, {"ingredient": "etonogestrel", "reaction": "Complication associated with device", "reports": 1331, "pct_of_drug_reports": 13.2}, {"ingredient": "etonogestrel", "reaction": "Vaginal haemorrhage", "reports": 1116, "pct_of_drug_reports": 11.0}, {"ingredient": "etonogestrel", "reaction": "Complication of device removal", "reports": 1066, "pct_of_drug_reports": 10.5}, {"ingredient": "etonogestrel", "reaction": "Amenorrhoea", "reports": 887, "pct_of_drug_reports": 8.8}, {"ingredient": "etonogestrel", "reaction": "Device breakage", "reports": 862, "pct_of_drug_reports": 8.5}, {"ingredient": "etonogestrel", "reaction": "Device issue", "reports": 842, "pct_of_drug_reports": 8.3}, {"ingredient": "risankizumab", "reaction": "Device issue", "reports": 597, "pct_of_drug_reports": 9.6}, {"ingredient": "risankizumab", "reaction": "Product storage error", "reports": 582, "pct_of_drug_reports": 9.3}, {"ingredient": "risankizumab", "reaction": "Psoriasis", "reports": 351, "pct_of_drug_reports": 5.6}, {"ingredient": "risankizumab", "reaction": "Crohn's disease", "reports": 293, "pct_of_drug_reports": 4.7}, {"ingredient": "risankizumab", "reaction": "Arthralgia", "reports": 254, "pct_of_drug_reports": 4.1}, {"ingredient": "risankizumab", "reaction": "Fatigue", "reports": 240, "pct_of_drug_reports": 3.8}, {"ingredient": "risankizumab", "reaction": "Injection site haemorrhage", "reports": 232, "pct_of_drug_reports": 3.7}, {"ingredient": "risankizumab", "reaction": "Fall", "reports": 224, "pct_of_drug_reports": 3.6}, {"ingredient": "risankizumab", "reaction": "Pain", "reports": 221, "pct_of_drug_reports": 3.5}, {"ingredient": "risankizumab", "reaction": "Drug ineffective", "reports": 218, "pct_of_drug_reports": 3.5}], "outcomes": [{"ingredient": "dupilumab", "reports": 45033, "pct_death": 0.3, "pct_hospitalization": 4.8, "pct_life_threatening": 0.1, "pct_any_serious": 10.4}, {"ingredient": "tirzepatide", "reports": 19276, "pct_death": 0.8, "pct_hospitalization": 7.1, "pct_life_threatening": 0.8, "pct_any_serious": 20.7}, {"ingredient": "semaglutide", "reports": 10206, "pct_death": 0.9, "pct_hospitalization": 18.1, "pct_life_threatening": 1.1, "pct_any_serious": 51.8}, {"ingredient": "etonogestrel", "reports": 10114, "pct_death": 0.0, "pct_hospitalization": 0.2, "pct_life_threatening": 0.0, "pct_any_serious": 2.0}, {"ingredient": "risankizumab", "reports": 6241, "pct_death": 3.6, "pct_hospitalization": 27.1, "pct_life_threatening": 0.2, "pct_any_serious": 72.9}, {"ingredient": "bimekizumab", "reports": 6157, "pct_death": 0.6, "pct_hospitalization": 7.3, "pct_life_threatening": 0.3, "pct_any_serious": 24.2}, {"ingredient": "lenalidomide", "reports": 5956, "pct_death": 5.0, "pct_hospitalization": 20.4, "pct_life_threatening": 1.1, "pct_any_serious": 47.0}, {"ingredient": "adalimumab", "reports": 4961, "pct_death": 6.6, "pct_hospitalization": 24.0, "pct_life_threatening": 2.2, "pct_any_serious": 75.0}, {"ingredient": "upadacitinib", "reports": 4368, "pct_death": 4.1, "pct_hospitalization": 34.2, "pct_life_threatening": 0.9, "pct_any_serious": 87.6}, {"ingredient": "infliximab", "reports": 3912, "pct_death": 2.7, "pct_hospitalization": 28.1, "pct_life_threatening": 2.9, "pct_any_serious": 92.1}, {"ingredient": "evolocumab", "reports": 3462, "pct_death": 2.8, "pct_hospitalization": 13.3, "pct_life_threatening": 1.1, "pct_any_serious": 52.0}, {"ingredient": "insulin glargine", "reports": 3403, "pct_death": 0.7, "pct_hospitalization": 5.3, "pct_life_threatening": 0.4, "pct_any_serious": 13.9}, {"ingredient": "nemolizumab", "reports": 3397, "pct_death": 1.9, "pct_hospitalization": 6.8, "pct_life_threatening": 0.0, "pct_any_serious": 15.1}, {"ingredient": "somatropin", "reports": 3358, "pct_death": 0.3, "pct_hospitalization": 2.5, "pct_life_threatening": 0.2, "pct_any_serious": 7.5}, {"ingredient": "guselkumab", "reports": 2979, "pct_death": 0.9, "pct_hospitalization": 7.0, "pct_life_threatening": 0.3, "pct_any_serious": 21.6}, {"ingredient": "corticotropin", "reports": 2966, "pct_death": 1.1, "pct_hospitalization": 9.6, "pct_life_threatening": 0.1, "pct_any_serious": 34.8}, {"ingredient": "carbidopa / levodopa", "reports": 2947, "pct_death": 21.4, "pct_hospitalization": 54.1, "pct_life_threatening": 1.1, "pct_any_serious": 88.3}, {"ingredient": "pimavanserin", "reports": 2799, "pct_death": 19.0, "pct_hospitalization": 16.1, "pct_life_threatening": 0.4, "pct_any_serious": 64.0}, {"ingredient": "certolizumab pegol", "reports": 2686, "pct_death": 1.5, "pct_hospitalization": 8.0, "pct_life_threatening": 0.2, "pct_any_serious": 43.0}, {"ingredient": "pembrolizumab", "reports": 2680, "pct_death": 17.6, "pct_hospitalization": 37.8, "pct_life_threatening": 7.2, "pct_any_serious": 92.1}], "demographics": [{"sex": "F", "age_group": "0-17", "reports": 8404}, {"sex": "F", "age_group": "18-44", "reports": 34419}, {"sex": "F", "age_group": "45-64", "reports": 45053}, {"sex": "F", "age_group": "65-74", "reports": 28571}, {"sex": "F", "age_group": "75+", "reports": 25343}, {"sex": "F", "age_group": "Unknown", "reports": 73177}, {"sex": "M", "age_group": "0-17", "reports": 9391}, {"sex": "M", "age_group": "18-44", "reports": 17043}, {"sex": "M", "age_group": "45-64", "reports": 26551}, {"sex": "M", "age_group": "65-74", "reports": 21307}, {"sex": "M", "age_group": "75+", "reports": 19982}, {"sex": "M", "age_group": "Unknown", "reports": 36070}, {"sex": "Unknown", "age_group": "0-17", "reports": 2070}, {"sex": "Unknown", "age_group": "18-44", "reports": 6937}, {"sex": "Unknown", "age_group": "45-64", "reports": 10410}, {"sex": "Unknown", "age_group": "65-74", "reports": 7316}, {"sex": "Unknown", "age_group": "75+", "reports": 6802}, {"sex": "Unknown", "age_group": "Unknown", "reports": 42557}], "reporters": [{"code": "CN", "reports": 233297, "reporter": "Consumer"}, {"code": "HP", "reports": 87729, "reporter": "Health professional"}, {"code": "MD", "reports": 70854, "reporter": "Physician"}, {"code": "PH", "reports": 21343, "reporter": "Pharmacist"}, {"code": "Unknown", "reports": 4971, "reporter": "Unknown"}, {"code": "LW", "reports": 3209, "reporter": "Lawyer"}], "countries": [{"country": "US", "reports": 285594}, {"country": "EU", "reports": 41557}, {"country": "JP", "reports": 15766}, {"country": "CA", "reports": 14902}, {"country": "GB", "reports": 14364}, {"country": "CN", "reports": 10799}, {"country": "COUNTRY NOT SPECIFIED", "reports": 9770}, {"country": "AU", "reports": 4129}, {"country": "CO", "reports": 3140}, {"country": "IN", "reports": 2722}]}};
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const C = {accent:css('--accent'),accent2:css('--accent2'),warn:css('--warn'),bad:css('--bad'),
+           good:css('--good'),muted:css('--muted'),line:css('--line'),ink:css('--ink')};
+Chart.defaults.color = C.muted; Chart.defaults.borderColor = C.line;
+Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+Chart.defaults.maintainAspectRatio = false;
+const fmt = n => n == null ? '–' : Number(n).toLocaleString();
+const pct = n => n == null ? '–' : Number(n).toFixed(1) + '%';
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const title = s => s ? s.replace(/\b\w/g, c => c.toUpperCase()) : s;
+
+const B = D.quality_before, A = D.quality_after, N = D.normalization;
+document.getElementById('sub').textContent =
+  `FAERS quarterly extract ${D.quarter.toUpperCase()} · generated ${D.generated} · ` +
+  `${fmt(B.duplication.report_rows)} raw report rows, ${fmt(N.drug_rows)} drug rows`;
+
+const kpis = [
+  [fmt(A.duplication.report_rows), 'unique reports after de-duplication'],
+  [fmt(B.duplication.superseded_versions), 'duplicate case versions removed'],
+  [pct(N.pct_rows_normalized), 'of drug rows mapped to RxNorm'],
+  [`${fmt(N.unique_raw_names)} → ${fmt(D.unique_ingredients)}`, 'raw drug spellings → ingredients'],
+  [D.agreement.pct_agree == null ? '–' : pct(D.agreement.pct_agree), 'agreement with FDA-coded ingredient'],
+];
+document.getElementById('kpis').innerHTML = kpis.map(([v,l]) =>
+  `<div class="kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');
+
+// Scorecard
+const rows = [
+  ['Rows counted as reports', B.duplication.report_rows, A.duplication.report_rows, 'count', 'down'],
+  ['Duplicate case versions', B.duplication.pct_duplicate_rows, A.duplication.pct_duplicate_rows, 'pct', 'down'],
+  ['Invalid ages (of ages reported)', B.validity.pct_invalid_ages, A.validity.pct_invalid_ages, 'pct', 'down'],
+  ['Invalid weights (of weights reported)', B.validity.pct_invalid_weights, A.validity.pct_invalid_weights, 'pct', 'down'],
+  ['Invalid event dates', B.validity.pct_invalid_event_dates, A.validity.pct_invalid_event_dates, 'pct', 'down'],
+  ['Age filled in', B.completeness_demo.pct_age, A.completeness_demo.pct_age, 'pct', 'info'],
+  ['Sex reported (F/M)', B.completeness_demo.pct_sex, A.completeness_demo.pct_sex, 'pct', 'info'],
+  ['Weight filled in', B.completeness_demo.pct_weight, A.completeness_demo.pct_weight, 'pct', 'info'],
+  ['Distinct drug identifiers', B.unique_raw_drug_names, D.unique_ingredients, 'count', 'down'],
+  ['Drug rows on a standard vocabulary', 0, N.pct_rows_normalized, 'pct', 'up'],
+  ['Uninformative drug names ("UNKNOWN", ...)', B.uninformative_names.pct_uninformative, A.uninformative_names.pct_uninformative, 'pct', 'flag'],
+];
+document.getElementById('scorecard').innerHTML =
+  '<tr><th>Metric</th><th class="num">Before</th><th class="num">After</th><th>Note</th></tr>' +
+  rows.map(([m,b,a,t,dir]) => {
+    const f = t === 'pct' ? pct : fmt;
+    let cls = '', note = '';
+    if (dir === 'down') { cls = a < b ? 'better' : ''; note = a < b ? 'improved' : ''; }
+    if (dir === 'up')   { cls = a > b ? 'better' : ''; note = a > b ? 'improved' : ''; }
+    if (dir === 'info') note = 'invalid values now counted as missing';
+    if (dir === 'flag') note = 'flagged, excluded from drug counts';
+    return `<tr><td>${m}</td><td class="num">${f(b)}</td><td class="num ${cls}">${f(a)}</td><td>${note}</td></tr>`;
+  }).join('');
+
+// Normalization methods
+const METHOD_LABELS = {rxnorm_exact:'RxNorm exact', rxnorm_approx:'RxNorm fuzzy (verified)',
+  llm_verified:'LLM + RxNorm check', unresolved:'Not matched', uninformative:'Uninformative name',
+  not_looked_up:'Rare name (not looked up)'};
+const order = Object.keys(METHOD_LABELS).filter(k => N.rows_by_method[k]);
+const tot = order.reduce((s,k) => s + N.rows_by_method[k], 0);
+new Chart(document.getElementById('methods'), {type:'bar',
+  data:{labels:order.map(k=>METHOD_LABELS[k]), datasets:[{data:order.map(k=>100*N.rows_by_method[k]/tot),
+  backgroundColor:order.map(k=>['rxnorm_exact','rxnorm_approx','llm_verified'].includes(k)?C.accent2:C.muted)}]},
+  options:{indexAxis:'y',plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>
+    `${c.parsed.x.toFixed(1)}% (${fmt(N.rows_by_method[order[c.dataIndex]])} rows)`}}},
+    scales:{x:{ticks:{callback:v=>v+'%'}}}}});
+
+// Top drugs
+new Chart(document.getElementById('topdrugs'), {type:'bar',
+  data:{labels:D.analysis.top_drugs.map(d=>title(d.ingredient)),
+        datasets:[{data:D.analysis.top_drugs.map(d=>d.reports), backgroundColor:C.accent}]},
+  options:{indexAxis:'y',plugins:{legend:{display:false}},scales:{y:{ticks:{autoSkip:false,font:{size:11}}}}}});
+
+// Undercount
+const U = D.analysis.undercount.slice().sort((a,b)=>b.pct_missed-a.pct_missed);
+new Chart(document.getElementById('undercount'), {type:'bar',
+  data:{labels:U.map(d=>title(d.ingredient)), datasets:[{data:U.map(d=>d.pct_missed), backgroundColor:C.warn}]},
+  options:{plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>
+    `${c.parsed.y}% missed (${fmt(U[c.dataIndex].reports_missed)} of ${fmt(U[c.dataIndex].reports)} reports)`}}},
+    scales:{y:{ticks:{callback:v=>v+'%'}},x:{ticks:{autoSkip:false,maxRotation:60,font:{size:11}}}}}});
+document.getElementById('undertable').innerHTML =
+  '<tr><th>Ingredient</th><th>Most common spelling</th><th class="num">Spellings</th><th class="num">Reports (normalized)</th><th class="num">Reports (top spelling only)</th><th class="num">Missed</th></tr>' +
+  U.slice(0,10).map(d=>`<tr><td>${esc(title(d.ingredient))}</td><td>${esc(d.top_spelling)}</td><td class="num">${fmt(d.spellings)}</td><td class="num">${fmt(d.reports)}</td><td class="num">${fmt(d.reports_top_spelling)}</td><td class="num worse">${pct(d.pct_missed)}</td></tr>`).join('');
+
+// Outcomes
+const O = D.analysis.outcomes.slice(0,10);
+new Chart(document.getElementById('outcomes'), {type:'bar',
+  data:{labels:O.map(d=>title(d.ingredient)), datasets:[
+    {label:'Hospitalization', data:O.map(d=>d.pct_hospitalization), backgroundColor:C.accent},
+    {label:'Death', data:O.map(d=>d.pct_death), backgroundColor:C.bad}]},
+  options:{plugins:{legend:{position:'bottom'}},scales:{y:{ticks:{callback:v=>v+'%'}},
+    x:{ticks:{autoSkip:false,maxRotation:60,font:{size:11}}}}}});
+
+// Reactions with a picker
+const R = D.analysis.reactions, picks = [...new Set(R.map(r=>r.ingredient))];
+const sel = document.getElementById('drugpick');
+sel.innerHTML = picks.map(p=>`<option value="${esc(p)}">${esc(title(p))}</option>`).join('');
+let rchart;
+function drawReactions(){
+  const rows = R.filter(r=>r.ingredient===sel.value);
+  if (rchart) rchart.destroy();
+  rchart = new Chart(document.getElementById('reactions'), {type:'bar',
+    data:{labels:rows.map(r=>title(r.reaction.toLowerCase())), datasets:[{data:rows.map(r=>r.pct_of_drug_reports), backgroundColor:C.accent2}]},
+    options:{indexAxis:'y',plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>
+      `${c.parsed.x}% of reports (${fmt(rows[c.dataIndex].reports)})`}}},scales:{x:{ticks:{callback:v=>v+'%'}},
+      y:{ticks:{autoSkip:false,font:{size:11}}}}}});
+}
+sel.addEventListener('change', drawReactions); if (picks.length) drawReactions();
+
+// Demographics
+const ages = ['0-17','18-44','45-64','65-74','75+','Unknown'];
+const sexes = [['F','Female',C.accent],['M','Male',C.accent2],['Unknown','Unknown',C.muted]];
+new Chart(document.getElementById('demo'), {type:'bar',
+  data:{labels:ages, datasets:sexes.map(([k,l,c])=>({label:l, backgroundColor:c,
+    data:ages.map(a=>(D.analysis.demographics.find(d=>d.sex===k&&d.age_group===a)||{}).reports||0)}))},
+  options:{plugins:{legend:{position:'bottom'}},scales:{x:{stacked:true},y:{stacked:true}}}});
+
+// Reporters
+const RP = D.analysis.reporters;
+new Chart(document.getElementById('reporters'), {type:'bar',
+  data:{labels:RP.map(r=>r.reporter), datasets:[{data:RP.map(r=>r.reports), backgroundColor:C.accent}]},
+  options:{indexAxis:'y',plugins:{legend:{display:false}}}});
+
+document.getElementById('foot').textContent =
+  'Source: U.S. FDA Adverse Event Reporting System (FAERS) public quarterly data; drug vocabulary: NLM RxNorm. ' +
+  'FAERS reports do not prove a drug caused a reaction, and report counts do not measure how common a reaction is.';
+</script>
+</body>
+</html>
