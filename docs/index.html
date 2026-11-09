@@ -17,7 +17,7 @@ h1{font-size:26px;margin:0 0 4px;letter-spacing:-.01em}
 .sub{color:var(--muted);margin:0 0 22px}
 h2{font-size:17px;margin:0 0 4px}
 .note{color:var(--muted);font-size:13px;margin:0 0 14px}
-.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:18px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:12px;margin-bottom:18px}
 .kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
 .kpi .v{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums}
 .kpi .l{color:var(--muted);font-size:13px}
@@ -43,7 +43,7 @@ footer{color:var(--muted);font-size:12px;margin-top:22px}
   <div class="grid">
     <div class="card full">
       <h2>Data quality scorecard: before vs. after cleaning</h2>
-      <p class="note">Same SQL checks run on the raw FDA tables and on the cleaned tables.</p>
+      <p class="note">Same SQL checks run on the raw FDA tables and on the cleaned tables. The biggest issues are inconsistent drug names and missing patient details.</p>
       <div class="tablewrap"><table id="scorecard"></table></div>
     </div>
     <div class="card">
@@ -103,39 +103,46 @@ document.getElementById('sub').textContent =
   `FAERS quarterly extract ${D.quarter.toUpperCase()} · generated ${D.generated} · ` +
   `${fmt(B.duplication.report_rows)} raw report rows, ${fmt(N.drug_rows)} drug rows`;
 
+const maxMiss = D.analysis.undercount.reduce((m,d) => d.pct_missed > m.pct_missed ? d : m,
+  {pct_missed: 0, ingredient: ''});
 const kpis = [
-  [fmt(A.duplication.report_rows), 'unique reports after de-duplication'],
-  [fmt(B.duplication.superseded_versions), 'duplicate case versions removed'],
-  [pct(N.pct_rows_normalized), 'of drug rows mapped to RxNorm'],
-  [`${fmt(N.unique_raw_names)} → ${fmt(D.unique_ingredients)}`, 'raw drug spellings → ingredients'],
+  [fmt(A.duplication.report_rows), 'adverse event reports analyzed'],
+  [pct(N.pct_rows_normalized), `of ${fmt(N.drug_rows)} drug rows mapped to RxNorm`],
+  [`${fmt(N.unique_raw_names)} → ${fmt(D.unique_ingredients)}`, 'raw drug spellings → standard ingredients'],
   [D.agreement.pct_agree == null ? '–' : pct(D.agreement.pct_agree), 'agreement with FDA-coded ingredient'],
+  [pct(maxMiss.pct_missed), `of ${esc(title(maxMiss.ingredient))} reports missed without normalization`],
+  [pct(100 - A.completeness_demo.pct_weight), 'of reports missing patient weight'],
 ];
 document.getElementById('kpis').innerHTML = kpis.map(([v,l]) =>
   `<div class="kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');
 
 // Scorecard
+// Each row: metric, before, after, format, kind. Small source issues are labeled honestly
+// instead of being called "improved".
 const rows = [
-  ['Rows counted as reports', B.duplication.report_rows, A.duplication.report_rows, 'count', 'down'],
-  ['Duplicate case versions', B.duplication.pct_duplicate_rows, A.duplication.pct_duplicate_rows, 'pct', 'down'],
-  ['Invalid ages (of ages reported)', B.validity.pct_invalid_ages, A.validity.pct_invalid_ages, 'pct', 'down'],
-  ['Invalid weights (of weights reported)', B.validity.pct_invalid_weights, A.validity.pct_invalid_weights, 'pct', 'down'],
-  ['Invalid event dates', B.validity.pct_invalid_event_dates, A.validity.pct_invalid_event_dates, 'pct', 'down'],
-  ['Age filled in', B.completeness_demo.pct_age, A.completeness_demo.pct_age, 'pct', 'info'],
-  ['Sex reported (F/M)', B.completeness_demo.pct_sex, A.completeness_demo.pct_sex, 'pct', 'info'],
-  ['Weight filled in', B.completeness_demo.pct_weight, A.completeness_demo.pct_weight, 'pct', 'info'],
   ['Distinct drug identifiers', B.unique_raw_drug_names, D.unique_ingredients, 'count', 'down'],
   ['Drug rows on a standard vocabulary', 0, N.pct_rows_normalized, 'pct', 'up'],
-  ['Uninformative drug names ("UNKNOWN", ...)', B.uninformative_names.pct_uninformative, A.uninformative_names.pct_uninformative, 'pct', 'flag'],
+  ['Age filled in', B.completeness_demo.pct_age, A.completeness_demo.pct_age, 'pct', 'missing'],
+  ['Sex reported (F/M)', B.completeness_demo.pct_sex, A.completeness_demo.pct_sex, 'pct', 'missing'],
+  ['Event date filled in', B.completeness_demo.pct_event_date, A.completeness_demo.pct_event_date, 'pct', 'missing'],
+  ['Weight filled in', B.completeness_demo.pct_weight, A.completeness_demo.pct_weight, 'pct', 'missing'],
+  ['Duplicate case versions', B.duplication.superseded_versions, A.duplication.superseded_versions, 'count', 'check'],
+  ['Invalid ages / weights / event dates',
+   B.validity.invalid_ages + B.validity.invalid_weights + B.validity.invalid_event_dates,
+   A.validity.invalid_ages + A.validity.invalid_weights + A.validity.invalid_event_dates, 'count', 'check'],
+  ['Uninformative drug names ("UNKNOWN", ...)', B.uninformative_names.uninformative_rows,
+   A.uninformative_names.uninformative_rows, 'count', 'flag'],
 ];
 document.getElementById('scorecard').innerHTML =
   '<tr><th>Metric</th><th class="num">Before</th><th class="num">After</th><th>Note</th></tr>' +
-  rows.map(([m,b,a,t,dir]) => {
+  rows.map(([m,b,a,t,kind]) => {
     const f = t === 'pct' ? pct : fmt;
     let cls = '', note = '';
-    if (dir === 'down') { cls = a < b ? 'better' : ''; note = a < b ? 'improved' : ''; }
-    if (dir === 'up')   { cls = a > b ? 'better' : ''; note = a > b ? 'improved' : ''; }
-    if (dir === 'info') note = 'invalid values now counted as missing';
-    if (dir === 'flag') note = 'flagged, excluded from drug counts';
+    if (kind === 'down' && a < b) { cls = 'better'; note = `${(100 * (1 - a / b)).toFixed(0)}% fewer`; }
+    if (kind === 'up' && a > b)   { cls = 'better'; note = 'standardized'; }
+    if (kind === 'missing') note = b < 50 ? 'major gap in the source data' : b < 90 ? 'often missing' : '';
+    if (kind === 'check') note = b === 0 ? 'none found' : `few in source; ${fmt(b)} fixed`;
+    if (kind === 'flag') note = 'excluded from drug counts';
     return `<tr><td>${m}</td><td class="num">${f(b)}</td><td class="num ${cls}">${f(a)}</td><td>${note}</td></tr>`;
   }).join('');
 
