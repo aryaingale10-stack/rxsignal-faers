@@ -2,6 +2,8 @@
 
 A data quality and standardization pipeline for the FDA Adverse Event Reporting System (FAERS), built with Python, SQL and the NLM RxNorm API.
 
+**[View the live dashboard →](https://aryaingale10-stack.github.io/rxsignal-faers/)**
+
 The FDA's Adverse Event Reporting System (FAERS) is a public database of millions of reports of
 side effects. Drug names in it are typed by hand, so the same drug shows up dozens of ways
 (`HUMIRA`, `HUMIRA PEN`, `HUMIRA (ADALIMUMAB)`, `humira 40mg/0.4ml`, ...). The data also has
@@ -24,11 +26,16 @@ This project:
 
 | Metric | Value |
 |---|---|
-| Reports analyzed | 421,404 |
-| Drug records standardized | 1.58M, of which **92.4%** mapped to an RxNorm ingredient |
+| Reports analyzed | 421,403 |
+| Drug records standardized | 1.58M, of which **92.3%** mapped to an RxNorm ingredient |
+| Agreement with the FDA's own coded ingredient | **95.1%** (on 1.45M records where FDA coded it) |
 | Raw drug spellings → ingredients | **36,003 → 1,536** |
 | Reports missing patient weight / event date / age | 82.1% / 56.0% / 36.0% |
 | Reports missed when counting a drug by its most common spelling | up to **67%** (e.g. adalimumab: 13 spellings) |
+
+[![RxSignal dashboard](docs/dashboard.png)](https://aryaingale10-stack.github.io/rxsignal-faers/)
+
+*Click the image to open the interactive dashboard.*
 
 ## Run it (about 20–40 minutes, mostly RxNorm lookups)
 
